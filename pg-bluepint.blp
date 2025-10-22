@@ -1,0 +1,124 @@
+# Blueprint to provision DSM Postgres Database
+# Assumption is that Data Service Policy already exists and that the ORG where the tenant resides has been granted access to provision databases
+# Another assumption is that the namespace where the database is provisioned to is part of an infrastructure policy
+# Kudos to Eric Gray for initial template
+# TODO - figure out how to read in values that are currently hardcoded (versions, storage policies, backup locations, VM Classes, etc)
+#
+formatVersion: 2
+inputs:
+  dbName:
+    type: string
+    title: Database Name
+    description: Name of Postgres DB - leave blank to use deployment name; 4 character minimum
+    #minLength: 4
+    default: '' # indicates optional
+  namespace:
+    type: string
+    title: Namespace
+    description: Tenant namespace for this deployment
+    default: same-ns-5hklb
+  dbInfraPolicy:
+    type: string
+    title: Infrastructure Policy
+    description: Target DSM infrastructure policy or namespace
+    enum:
+      - same-ns-5hklb
+      - diff-ns-same-org-6mbgt
+      - dsm-ns-01-5rvdd
+    default: same-ns-5hklb
+  storagePolicy:
+    type: string
+    title: Storage Policy
+    description: vSphere Storage Policy
+    default: vSAN Default Storage Policy
+  diskSize:
+    type: integer
+    title: DB Disk Size
+    maximum: 80
+    minimum: 20
+    default: 20
+  backupLocation:
+    type: string
+    title: Backup Location
+    description: S3 storage bucket configured for DSM backups
+    enum:
+      - none
+      - dsm-backups
+    default: dsm-backups
+  dbAvailability:
+    type: string
+    title: Availability Model
+    description: Single VM or Primary/Replica HA Cluster
+    default: single
+    oneOf:
+      - title: Single VM
+        const: single
+      - title: HA Cluster
+        const: cluster
+  dbVersion:
+    type: integer
+    title: Postgres Major Version
+    description: Major version of the database being provisioned
+    maximum: 17
+    minimum: 12
+    default: 17
+variables:
+  dbName: ${to_lower(input.dbName || env.deploymentName)}
+  dbClass: ${input.dbAvailability == "single" ? "best-effort-large" :"best-effort-xlarge"}
+  backup: ${input.backupLocation != "none" ? input.backupLocation :null}
+  dbVersion: ${to_string(input.dbVersion)}
+  backupConf:
+    backupRetentionDays: 30
+    schedules:
+      - name: default-full-backup
+        type: full
+        schedule: 59 23 * * 6
+      - name: default-incremental-backup
+        type: incremental
+        schedule: 59 23 1/1 * *
+resources:
+  cciNamespace:
+    type: CCI.Supervisor.Namespace
+    properties:
+      name: ${input.namespace}
+      existing: true
+# Supervisor resource, in this case a DSM database, which is created in 
+# the Namespace context and will either succeed or fail
+  dsmDb:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.cciNamespace.id}
+      wait:
+        conditions:
+          - status: 'True'
+            type: Ready
+          - status: 'True'
+            type: TerminalFailure
+            indicatesFailure: true
+# This manifest is now identical to the YAML code used to create a database using the DSM API
+# The only difference is that we are populating field based on the inputted variables above
+# Essentially, the DSM APIs are made available to vSphere through the DSM Consumption Operator 
+# which is installed as a Supervisor Service, allowing VCF Automation to consume them
+      manifest:
+        apiVersion: databases.dataservices.vmware.com/v1alpha1
+        kind: PostgresCluster
+        spec:
+          adminUsername: pgadmin
+          databaseName: ${variable.dbName}
+          version: ${variable.dbVersion}
+          storageSpace: ${input.diskSize + 'Gi'}
+          storagePolicyName: ${input.storagePolicy}
+          infrastructurePolicy:
+            name: ${input.dbInfraPolicy}
+          replicas: ${input.dbAvailability == "single" ? 0 :1}
+          vmClass:
+            name: ${variable.dbClass}
+          maintenanceWindow:
+            duration: 6h
+            startDay: SATURDAY
+            startTime: '23:59'
+          backupLocation: ${variable.backup != null ? {'name':input.backupLocation} :null}
+          backupConfig: ${variable.backup != null ? variable.backupConf :null}
+        metadata:
+          name: ${variable.dbName}
+          namespace: ${resource.cciNamespace.name}
