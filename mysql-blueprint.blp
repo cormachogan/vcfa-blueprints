@@ -3,6 +3,10 @@
 # Another assumption is that the namespace where the database is provisioned to is part of an infrastructure policy
 # Kudos to Eric Gray for initial template
 #
+# -----------------------------------------------------------------------------------------------------------------------------------------------
+#
+# formatVersion 2 required for variables
+#
 formatVersion: 2
 inputs:
   dbName:
@@ -15,11 +19,13 @@ inputs:
     type: string
     title: Namespace
     description: Tenant namespace for this deployment
+# Change this to your own tenant namespace
     default: same-ns-5hklb
   dbInfraPolicy:
     type: string
     title: Infrastructure Policy
     description: Target DSM infrastructure policy or namespace
+# Change these to your own namespace-based infrastructure policies
     enum:
       - same-ns-5hklb
       - diff-ns-same-org-6mbgt
@@ -29,6 +35,7 @@ inputs:
     type: string
     title: Storage Policy
     description: vSphere Storage Policy
+# Change this to your own preferred storage policy.
     default: vSAN Default Storage Policy
   diskSize:
     type: integer
@@ -40,6 +47,7 @@ inputs:
     type: string
     title: Backup Location
     description: S3 storage bucket configured for DSM backups
+# Change these to your own backup locations
     enum:
       - none
       - dsm-backups
@@ -75,7 +83,7 @@ variables:
       - name: default-full-backup
         type: full
         schedule: 59 23 * * 6
-# No incremental backups for MySQL
+# No incremental backups for MySQL, only full backups
 resources:
   cciNamespace:
     type: CCI.Supervisor.Namespace
