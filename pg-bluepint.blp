@@ -2,7 +2,10 @@
 # Assumption is that Data Service Policy already exists and that the ORG where the tenant resides has been granted access to provision databases
 # Another assumption is that the namespace where the database is provisioned to is part of an infrastructure policy
 # Kudos to Eric Gray for initial template
-# TODO - figure out how to read in values that are currently hardcoded (versions, storage policies, backup locations, VM Classes, etc)
+# 
+# -----------------------------------------------------------------------------------------------------------------
+#
+# formatVersion 2 required for variable
 #
 formatVersion: 2
 inputs:
@@ -16,11 +19,13 @@ inputs:
     type: string
     title: Namespace
     description: Tenant namespace for this deployment
+# Change to your tenant namespace
     default: same-ns-5hklb
   dbInfraPolicy:
     type: string
     title: Infrastructure Policy
     description: Target DSM infrastructure policy or namespace
+# Change to your namespace-based infrastructure policy
     enum:
       - same-ns-5hklb
       - diff-ns-same-org-6mbgt
@@ -30,6 +35,7 @@ inputs:
     type: string
     title: Storage Policy
     description: vSphere Storage Policy
+# Change to your storage policy or policies (will require enum listing)
     default: vSAN Default Storage Policy
   diskSize:
     type: integer
@@ -41,6 +47,7 @@ inputs:
     type: string
     title: Backup Location
     description: S3 storage bucket configured for DSM backups
+# Change to your backup locations
     enum:
       - none
       - dsm-backups
