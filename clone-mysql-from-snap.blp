@@ -1,0 +1,139 @@
+# Blueprint to provision DSM MySQL Database from an existing snapshot
+# Assumption is that Data Service Policy already exists and that the ORG where the tenant resides has been granted access to provision databases
+# Another assumption is that the namespace where the database is provisioned to is part of an infrastructure policy
+#
+# -----------------------------------------------------------------------------------------------------------------------------------------------
+#
+# formatVersion 2 required for variables
+#
+formatVersion: 2
+inputs:
+  dbName:
+    type: string
+    title: Database Name
+    description: Name of MySQL DB - leave blank to use deployment name; 4 character minimum
+    #minLength: 4
+    default: '' # indicates optional
+  namespace:
+    type: string
+    title: Namespace
+    description: Tenant namespace for this deployment
+# Change this to your own tenant namespace
+    default: cjh-ns-01-jp5bl
+  snapshotName:
+    type: string
+    title: Clone MySQL database from this Snapshot
+    description: The snapshot from which this dataase is based
+  dbInfraPolicy:
+    type: string
+    title: Infrastructure Policy
+    description: Target DSM infrastructure policy or namespace
+# Change these to your own namespace-based infrastructure policies
+    default: tenant-1-dsm-ns-wmkrk
+  storagePolicy:
+    type: string
+    title: Storage Policy
+    description: vSphere Storage Policy
+# Change this to your own preferred storage policy.
+    enum:
+      - vSAN ESA Default Policy - RAID6
+      - vSAN ESA Default Policy - RAID5
+      - vSAN ESA Auto RAID Policy
+      - vSAN Default Storage Policy
+    default: vSAN Default Storage Policy
+  diskSize:
+    type: integer
+    title: DB Disk Size
+    maximum: 80
+    minimum: 20
+    default: 20
+  backupLocation:
+    type: string
+    title: Backup Location
+    description: S3 storage bucket configured for DSM backups
+# Change these to your own backup locations
+    enum:
+      - none
+      - db-backup
+    default: db-backup
+  dbAvailability:
+    type: string
+    title: Availability Model
+    description: Single VM or Primary/Replica HA Cluster
+    default: single
+    oneOf:
+      - title: Single VM
+        const: single
+      - title: HA Cluster
+        const: cluster
+  dbVersion:
+    type: string
+    title: MySQL Version
+    description: Version of the database being provisioned
+    enum:
+      - 8.0.40
+      - 8.0.41
+      - 8.0.42
+      - 8.0.34
+      - 8.4.6
+    default: 8.4.6
+variables:
+  dbName: ${to_lower(input.dbName || env.deploymentName)}
+  dbClass: ${input.dbAvailability == "single" ? "best-effort-large" :"best-effort-xlarge"}
+  backup: ${input.backupLocation != "none" ? input.backupLocation :null}
+  dbVersion: ${to_string(input.dbVersion)}
+  backupConf:
+    backupRetentionDays: 30
+    schedules:
+      - name: default-full-backup
+        type: full
+        schedule: 59 23 * * 6
+# No incremental backups for MySQL, only full backups
+resources:
+  cciNamespace:
+    type: CCI.Supervisor.Namespace
+    properties:
+      name: ${input.namespace}
+      existing: true
+# Supervisor resource, in this case a DSM database, which is created in 
+# the Namespace context and will either succeed or fail
+  dsmDb:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.cciNamespace.id}
+      wait:
+        conditions:
+          - status: 'True'
+            type: Ready
+          - status: 'True'
+            type: TerminalFailure
+            indicatesFailure: true
+# This manifest is now identical to the YAML code used to create a database using the DSM API
+# The only difference is that we are populating field based on the inputted variables above
+# Essentially, the DSM APIs are made available to vSphere through the DSM Consumption Operator 
+# which is installed as a Supervisor Service, allowing VCF Automation to consume them
+      manifest:
+        apiVersion: databases.dataservices.vmware.com/v1alpha1
+        kind: MySQLCluster
+        spec:
+          databaseName: ${variable.dbName}
+          version: ${variable.dbVersion}
+          storageSpace: ${input.diskSize + 'Gi'}
+          storagePolicyName: ${input.storagePolicy}
+          infrastructurePolicy:
+            name: ${input.dbInfraPolicy}
+          members: ${input.dbAvailability == "single" ? 1 :3}
+          basedOn:
+            snapshot:
+              name: ${input.snapshotName}
+          vmClass:
+            name: ${variable.dbClass}
+          maintenanceWindow:
+            duration: 6h
+            startDay: SATURDAY
+            startTime: '23:59'
+          backupLocation: ${variable.backup != null ? {'name':input.backupLocation} :null}
+          backupConfig: ${variable.backup != null ? variable.backupConf :null}
+        metadata:
+          name: ${variable.dbName}
+          namespace: ${resource.cciNamespace.name}
