@@ -1,0 +1,145 @@
+# Many of the inputs and variables below will vary by environment - review carefully before deploying
+formatVersion: 2
+inputs:
+  dbName:
+    type: string
+    title: Database Name
+    description: Name of Postgres DB - leave blank to use deployment name; 4 character minimum
+    #minLength: 4
+    default: '' # indicates optional
+  namespace:
+    type: string
+    title: Namespace (org/tenant)
+    description: Tenant namespace for this deployment
+    default: cjh-ns-01-jp5bl
+  dbInfraPolicy:
+    type: string
+    title: Infrastructure Policy
+    description: Target DSM namespace
+    default: tenant-1-dsm-ns-wmkrk
+  dbUsername:
+    type: string
+    title: Database Username
+    description: Database administrator account
+    default: pgadmin
+  dbPassword:
+    type: string
+    encrypted: true
+    title: Database Admin Password
+    description: Password for the database administrator account
+  storagePolicy:
+    type: string
+    title: Storage Policy
+    description: vSphere Storage Policy
+    enum:
+      - vSAN ESA Auto RAID Policy
+      - vSAN Default Storage Policy
+      - vSAN ESA Default Policy - RAID5
+      - vSAN ESA Default Policy - RAID6
+    default: vSAN ESA Auto RAID Policy
+  diskSize:
+    type: integer
+    title: DB Disk Size
+    maximum: 80
+    minimum: 20
+    default: 40
+  backupLocation:
+    type: string
+    title: Backup Location
+    description: S3 storage bucket configured for DSM backups
+    enum:
+      - none
+      - db-backup
+    default: none
+  dbAvailability:
+    type: string
+    title: Availability Model
+    description: Single VM or Primary/Replica HA Cluster
+    default: single
+    oneOf:
+      - title: Single VM
+        const: single
+      - title: HA Cluster
+        const: cluster
+  dbVersion:
+    type: integer
+    title: Postgres Major Version
+    description: Major version of the database being prvisioned
+    default: 17
+    enum:
+      - 17
+      - 16
+      - 15
+      - 14
+      - 13
+variables:
+  dbName: ${to_lower(input.dbName || env.deploymentName)}
+  dbClass: ${input.dbAvailability == "single" ? "best-effort-large" :"best-effort-xlarge"}
+  dbVersion: ${to_string(input.dbVersion)}
+  backup: ${input.backupLocation != "none" ? input.backupLocation :null}
+  backupConf:
+    backupRetentionDays: ${input.dbVersion}
+    schedules:
+      - name: default-full-backup
+        type: full
+        schedule: 59 23 * * 6
+      - name: default-incremental-backup
+        type: incremental
+        schedule: 59 23 1/1 * *
+resources:
+  cciNamespace:
+    type: CCI.Supervisor.Namespace
+    properties:
+      name: ${input.namespace}
+      existing: true
+  dsmDb:
+    type: CCI.Supervisor.Resource
+    dependsOn:
+      - dbSecret # Ensures the secret is successfully created before DSM attempts to pull it
+    properties:
+      context: ${resource.cciNamespace.id}
+      wait:
+        conditions:
+          - status: 'True'
+            type: Ready
+          - status: 'True'
+            type: TerminalFailure
+            indicatesFailure: true
+      manifest:
+        apiVersion: databases.dataservices.vmware.com/v1alpha1
+        kind: PostgresCluster
+        spec:
+          adminUsername: ${input.dbUsername}
+          adminPasswordRef:
+            name: ${variable.dbName}-secret
+          databaseName: ${variable.dbName}
+          version: ${variable.dbVersion}
+          storageSpace: ${input.diskSize + 'Gi'}
+          storagePolicyName: ${input.storagePolicy}
+          infrastructurePolicy:
+            name: ${input.dbInfraPolicy}
+          replicas: ${input.dbAvailability == "single" ? 0 :1}
+          vmClass:
+            name: ${variable.dbClass}
+          maintenanceWindow:
+            duration: 6h
+            startDay: SATURDAY
+            startTime: '06:59'
+          backupLocation: ${variable.backup != null ? {'name':input.backupLocation} :null}
+          backupConfig: ${variable.backup != null ? variable.backupConf :null}
+        metadata:
+          name: ${variable.dbName}
+          namespace: ${resource.cciNamespace.name}
+  dbSecret:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.cciNamespace.id}
+      manifest:
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: ${variable.dbName}-secret
+          namespace: ${resource.cciNamespace.name}
+        stringData:
+          username: pgadmin
+          password: ${input.dbPassword}
