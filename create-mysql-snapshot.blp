@@ -1,0 +1,64 @@
+formatVersion: 2
+inputs:
+  namespace:
+    type: string
+    title: Supervisor Namespace
+    description: The K8s namespace where the MySQL deployment resides.
+  deploymentName:
+    type: string
+    title: Create Snapshot Deployment Name
+    description: Give this deployment a name
+  mySqlDbName:
+    type: string
+    title: Name of MySQL database to snapshot
+    description: Name of the MySQL database instance to snapshot.
+  snapshotName:
+    type: string
+    title: Snapshot Name
+    description: A unique identifier for this snapshot.
+resources:
+  cciNamespace:
+    type: CCI.Supervisor.Namespace
+    properties:
+      name: ${input.namespace}
+      existing: true
+# Supervisor resource, in this case a DSM snapshot, which is created in 
+# the Namespace context and will either succeed or fail
+  dsmSnapshot:
+    type: CCI.Supervisor.Resource
+    properties:
+      context: ${resource.cciNamespace.id}
+      wait:
+        conditions:
+          - status: 'True'
+            type: Ready
+          - status: 'True'
+            type: TerminalFailure
+            indicatesFailure: true
+# This manifest is now identical to the YAML code used to create a database using the DSM API
+# The only difference is that we are populating field based on the inputted variables above
+# Essentially, the DSM APIs are made available to vSphere through the DSM Consumption Operator 
+# which is installed as a Supervisor Service, allowing VCF Automation to consume them
+      manifest:
+        apiVersion: databases.dataservices.vmware.com/v1alpha1
+        kind: MySQLSnapshot
+        metadata:
+          name: ${input.snapshotName}
+          namespace: ${input.namespace}
+        spec:
+          # References the specific MySQL instance
+          sourceCluster:
+            name: ${input.mySqlDbName}
+outputs:
+  snapshotId:
+    title: Snapshot ID
+    value: ${resource.dsmSnapshot.MySQLSnapshot.id}
+  snapshotStatus:
+    title: Status
+    value: ${resource.dsmSnapshot.MySQLSnapshot.status}
+  creationTime:
+    title: Created At
+    value: ${resource.dsmSnapshot.MySQLSnapshot.createdAt}
+  restoreCommand:
+    title: Restore Reference
+    value: Use snapshot ID ${resource.dsmSnapshot.MySQLSnapshot.id} to restore or clone this instance.
