@@ -4,10 +4,6 @@ inputs:
     type: string
     title: Supervisor Namespace
     description: The K8s namespace where the MySQL deployment resides.
-  deploymentName:
-    type: string
-    title: Create Snapshot Deployment Name
-    description: Give this deployment a name
   mySqlDbName:
     type: string
     title: Name of MySQL database to snapshot
@@ -35,7 +31,7 @@ resources:
           - status: 'True'
             type: TerminalFailure
             indicatesFailure: true
-# This manifest is now identical to the YAML code used to create a database using the DSM API
+# This manifest is now identical to the YAML code used to create a snapshot using the DSM API
 # The only difference is that we are populating field based on the inputted variables above
 # Essentially, the DSM APIs are made available to vSphere through the DSM Consumption Operator 
 # which is installed as a Supervisor Service, allowing VCF Automation to consume them
@@ -49,16 +45,3 @@ resources:
           # References the specific MySQL instance
           sourceCluster:
             name: ${input.mySqlDbName}
-outputs:
-  snapshotId:
-    title: Snapshot ID
-    value: ${resource.dsmSnapshot.MySQLSnapshot.id}
-  snapshotStatus:
-    title: Status
-    value: ${resource.dsmSnapshot.MySQLSnapshot.status}
-  creationTime:
-    title: Created At
-    value: ${resource.dsmSnapshot.MySQLSnapshot.createdAt}
-  restoreCommand:
-    title: Restore Reference
-    value: Use snapshot ID ${resource.dsmSnapshot.MySQLSnapshot.id} to restore or clone this instance.
